@@ -1,0 +1,300 @@
+---
+title: "MA678 Midterm Project"
+author: "Yuli Jin"
+date: "2021/11/11"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=F,message = F , echo = FALSE)
+#knitr::opts_chunk$set(echo = FALSE,out.width="0.9\\linewidth",dev="png",fig.align  = 'center')
+knitr::opts_chunk$set(fig.width=10, fig.height=4,fig.align = "center") 
+pacman::p_load(
+tidyverse,
+magrittr,
+knitr,
+ggfortify,
+car,
+lattice,
+caret,
+lme4,
+zoo,
+lmtest,
+rstanarm
+)
+```
+
+## Abstract
+
+I conducted a multilevel linear regression model to find the relationship between the used car price and used car specification. In the process of modelling, I check the marginal Model Plots of predictor and added polynomial form on one predictor. After that, I used manufacture brand and body type as group-level predictors to construct varying-intercept model. The residuals of the fitted model don't have obvious correlation with varibales but have heteroskedasticity and don't follow normal distribution. The coefficients of the fitted model shows valid interpretation.
+
+
+## Introduction
+
+Cars are convenient means of transportation. However, selling and buying a used car isn't necessarily convenient. If people are planning to purchase or sell a used car, it always takes them a long time to search similar cars to compare and try to estimate a price for their own ones. Since manual comparison cannot reflect the precise relationship between price and car feature, the seemingly fair price isn't usually accurate. Moreover, when it comes to another car, they have to repeat such time consuming but rough estimation again. It is true that some websites have built the model to give a price for reference as long as customers type in their car conditions. Nonetheless, people still can't preciously figure out what factors on earth decide the value of used car.     
+In this report, I conducted a multilevel linear regression model to analyse how these factors influence the used car price. The analysis consists of three sections. In Method section, I will first introduce the data source used in this report and conduct some data processing. Then I will conduct exploratory data analysis and fit the model. After that, I will check the residuals of the fitted model. In Result section, I will interpret the coefficient of fitted model and display the random effect of multilevel model. In Discussion section, I will summarize what I have done and found in this report. Also, I will include limitation and next step work at last.  
+
+
+## Method
+
+### Data Processing
+
+The data is from [Kaggle-usedcarscatalog](https://www.kaggle.com/lepchenkov/usedcarscatalog). The following table is the explanation of some columns. 
+
+```{r eval=FALSE}
+Column<-c('manufacturer name','odometer_value','year_produced','engine_capacity','body_type','has_warranty',
+        'feature_0-9','price_usd')
+Explanation<-c('The name of car manufacturer',
+        'Odometer state in 100000 kilometers',
+        'The year the car has been produced',
+        'The capacity of the engine in liters, numerical column',
+        'Type of the body (hatchback, sedan, etc',
+        'Does the car have warranty?',
+        'Is the option like alloy wheels, conditioner, etc. is present in the car',
+        'The price of a car as listed in the catalog in USD')
+des_tab<-cbind(Column,Explanation)
+knitr::kable(des_tab, "pipe")
+```
+
+|Column            |Explanation                                                              |
+|:-----------------|:------------------------------------------------------------------------|
+|manufacturer name |The name of car manufacturer                                             |
+|odometer value    |Odometer state in 100000 kilometers                                      |
+|year produced     |The year the car has been produced                                       |
+|engine capacity   |The capacity of the engine in liters, numerical column                   |
+|body type         |Type of the body (hatchback, sedan, etc)                                  |
+|has_warranty      |Does the car have warranty?                                              |
+|feature 0-9       |Is the option like alloy wheels, conditioner, etc. is present in the car |
+|price usd         |The price of a car as listed in the catalog in USD                       |
+
+
+The data has 38531 observations and 30 columns. In the following analysis, I choose 10 manufacture brands from Japan and Korea and several variables to conduct the analysis. I also conduct some transformation on some columns. For `year produced`, I use $year\_duration=log(2020-year\_produced)$ to get the age of cars being used. For `feature 0-9`, they are 9 bool type variables. I add them together as $feature=\sum_{i=0}^{9} feature_i$ to get the sum of feature.
+
+
+### Exploratory Data Analysis
+
+```{r}
+df<-read.csv("cars.csv",encoding="UTF-8")
+tmp<-df %>% select(manufacturer_name,body_type)
+df$manufacturer_name<-factor(df$manufacturer_name)
+df$body_type <- factor(df$body_type)
+df$engine_type<-factor(df$engine_type)
+df$price_usd_log<-log(df$price_usd)
+df$body_type<-factor(df$body_type)
+df$drivetrain<-factor(df$drivetrain)
+df$odometer_value_log<-log(df$odometer_value)
+df$odometer_value_th<-df$odometer_value/100000
+
+df$year_duration<-log(2020-df$year_produced)
+df<-df %>% filter(odometer_value_log>=0,price_usd_log>=0,year_duration>=0,engine_capacity>0)
+tmp<-df %>% dplyr::select(feature_0:feature_9)
+for( u in colnames(tmp) ){
+  tmp[[u]]= as.logical(tmp[[u]])
+}
+df$feature=apply(tmp,1,sum)
+df1<-df %>% filter(manufacturer_name %in% c('Subaru','Honda','Infiniti','Lexus','Mitsubishi','Mazda','Toyota','Hyundai','Nissan','Suzuki'))
+getGroup<-function(df,groupby,object,group=10){
+  breaks_quantile<-seq(1/group,1,1/group)
+  break_label<-seq(1,group,1)
+  quantile_df<-df1 %>% summarise(enframe(quantile(groupby, breaks_quantile), "quantile", "value"))
+  df$cut_re<-cut(groupby,c(-Inf,quantile_df$value),labels = break_label)
+  re<-df %>% group_by(cut_re) %>% summarise(mean=mean(price_usd_log),median=median(price_usd_log))
+  return(re)
+
+}
+
+
+
+```
+
+For continuous variables, I use quantile to separate continuous variable into 10&5 groups and calculate the mean of log(price).
+For category variables, I use box plot and density plot to check the distribution of log(price).
+
+```{r fig.cap="Group Mean of Variables"}
+library(customLayout)
+my_theme=theme_bw()+theme(legend.position="none")+theme(plot.title = element_text(hjust = 0.5))
+
+odometer_plot<-getGroup(df=df1,groupby=df1$odometer_value,object=price_usd_log) %>% ggplot(aes(y=mean,x=factor(cut_re))) +
+  geom_bar(aes(colour=factor(cut_re)),fill=NA,stat='identity')+coord_cartesian(ylim = c(5,10))+geom_text(aes(label = round(mean,2)),vjust=1.5)+labs(title='Odometer Value Group Sort',x='',y='log(price)')+my_theme
+
+engine_capacity_plot<-getGroup(df=df1,groupby=df1$engine_capacity,object=price_usd_log,group=5)%>%ggplot(aes(y=mean,x=factor(cut_re))) + geom_bar(aes(colour=factor(cut_re)),fill=NA,stat='identity')+coord_cartesian(ylim = c(5,10))+geom_text(aes(label = round(mean,2)),vjust=1.5)+labs(title='Engine Capacity Group Sort',x='',y='log(price)')+my_theme
+
+year_duration_plot<-getGroup(df=df1,groupby=df1$year_duration,object=price_usd_log,group=10) %>% ggplot(aes(y=mean,x=factor(cut_re))) + 
+  geom_bar(mapping = aes(colour=factor(cut_re)),fill=NA,stat='identity')+coord_cartesian(ylim = c(5,10))+geom_text(aes(label = round(mean,2)),vjust=1.5)+labs(title='Year Duration Group Sort',x='',y='log(price)')+my_theme
+
+number_of_photo_plot<-getGroup(df=df1,groupby=df1$number_of_photos,object=price_usd_log,group=10) %>% ggplot(aes(y=mean,x=factor(cut_re))) + 
+  geom_bar(mapping = aes(colour=factor(cut_re)),fill=NA,stat='identity')+coord_cartesian(ylim = c(5,10))+geom_text(aes(label = round(mean,2)),vjust=1.5)+labs(title='Photo Number Group Sort',x='',y='log(price)')+my_theme
+
+
+feature<-df1 %>% group_by(feature) %>% summarise(mean=mean(price_usd_log)) %>% ggplot(aes(y=mean,x=factor(feature))) + 
+  geom_bar(mapping = aes(colour=factor(feature)),fill=NA,stat='identity')+coord_cartesian(ylim = c(5,10))+geom_text(aes(label = round(mean,2)),vjust=1.5)+labs(title='Feature Group Sort',x='',y='log(price)')+my_theme
+
+
+mylay<-lay_new(mat=matrix(1:4,ncol=2))
+plot1<-list(odometer_plot,year_duration_plot,feature,engine_capacity_plot)
+lay_grid(plot1,mylay)
+
+```
+
+
+
+```{r fig.cap="Gategory Variables"}
+my_theme2=theme_bw()+theme(plot.title = element_text(hjust = 0.5),legend.key.size = unit(2, 'mm'))
+# df1 %>% group_by(body_type) %>% summarise(mean=mean(price_usd_log))
+# df1 %>% group_by(feature) %>% summarise(mean=mean(price_usd_log))
+# df1 %>% group_by(has_warranty) %>% summarise(mean=mean(price_usd_log)) 
+box1<-df1%>% ggplot(aes(x=has_warranty,y=price_usd_log))+geom_boxplot(outlier.shape = NA)+coord_cartesian(ylim = c(5, 12))+
+        scale_y_continuous(limits=c(5,12),breaks=seq(5,12,1))+labs(title='Warranty Condition')+my_theme2
+
+den_namu<-ggplot(data=df1,aes(x=price_usd_log))+geom_density(aes(color=factor(manufacturer_name)))+coord_cartesian(xlim = c(5, 10.6),ylim=c(0,1))+labs(title='Manufacturer Density Plot',x='log(price)',color='Manufacturer')+my_theme2
+
+den_body<-ggplot(data=df1,aes(x=price_usd_log))+geom_density(aes(color=factor(body_type)))+coord_cartesian(xlim = c(5, 10.6),ylim=c(0,1))+labs(title='Body Type Density Plot',x='log(price)',color='Body Type    ')+my_theme2
+
+
+lay1 <- lay_new(
+  matrix(1))
+#lay_show(lay1)
+lay2 <- lay_new(
+  matrix(1:2, nc = 1),
+  heights = c(1, 1))
+#lay_show(lay2)
+lay3<- lay_bind_col(lay1, lay2, widths = c(1, 3))
+plot2<-list(box1,den_namu,den_body)
+lay_grid(plot2,lay3)
+```
+
+From Figure 1, we can observe that each variable shows clear trend with mean of log(price) when divided through quantile. 
+For odometer value, the larger the odometer value is, the lower the car price is. For features, the more features included, the higher the car price is. For year duration, the longer the car is, the lower the price is. For engine capacity, the larger the engine capacity is, the higher the car price is.    
+Figure 2 consists of three plots, the first one is the log(price) boxplot of warranty condition, we can see that cars with warranty are more likely to have higher price. The rest two plots are the price density plot of manufacturer name and body type respectively. It is rational that different brands and body types have different density distribution.    
+
+### Model Fitting
+
+Previous exploratory data analysis section shows vivid trends and difference of car price. More importantly, these characteristics corresponds to most people's common sense. In this section, I will elaborate the model fitting process. First, it is important to check if potential variables have polynomial effect on log(price). Therefore, I apply marginal model plots without polynomial effect on odometer value, car feature, year duration and engine capacity. The plots are shown below:
+
+```{r fig.height=6,fig.cap="Marginal Model Plots"}
+
+fit3<-lm(price_usd_log~ odometer_value + feature +year_duration +engine_capacity , data=df1)
+car:::marginalModelPlots((fit3))
+
+```
+
+Figure 3 shows that the marginal model line of year duration deviates from the data line at both tails and it may be the main reason results in the deviance of fitted values and true value. Other marginal lines generally fit well. Note that even though the car feature is integral but not continuous, I regard it as continuous value instead for simplicity.    
+
+Then I fit the multilevel model. For year duration, I use polynomial with degree of 3. Given that manufacturer and body type have influence on car price, I use the interaction of these two variables to construct the multilevel term. Here is the model fitting result:
+
+$$
+\begin{aligned}
+log(price)=&7.981+0.027feature-60.510year\_duration-24.011year\_duration^2-7.406year\_duration^3 \\
+           &-0.034odometer\_value+0.254engine\_capacity+0.085warranty+n_j+\epsilon \\
+n_j \sim N(0,\sigma^2_a)
+\end{aligned}
+$$
+where $n_j$ is the random effect of manufacturer name:body type
+
+
+```{r fig.width=8,fig.cap='Residual Plot'}
+
+lmer_model<-lmer(price_usd_log ~ feature + poly(year_duration,3) + odometer_value_th +engine_capacity + has_warranty+(1|body_type : manufacturer_name), data=df1)
+# fixef(lmer_model)
+# exp(fitted(lmer_model))
+p1<-plot(lmer_model, type=c("p","smooth"), col.line=1,main='Residuals vs Fitted')
+p2<-plot(lmer_model,
+     sqrt(abs(resid(.)))~fitted(.),
+     type=c("p","smooth"), col.line=1,main='Scale-Location')
+p3<-lattice::qqmath(lmer_model,main='QQ Plot')
+p4<-plot(lmer_model, rstudent(.) ~ hatvalues(.),main='Residuals vs Leverage')
+
+lay3 <-lay <- lay_new(
+  matrix(1:4, nc = 2),
+  widths = c(2, 2),
+  heights = c(2, 2))
+
+plot3<-list(p1,p2,p3,p4)
+lay_grid(plot3,lay3)
+
+#sum(cooks.distance(lmer_model)>0.5)
+```
+
+
+Finally, I conduct residual analysis. The Residuals vs Fitted plot shows that the mean of residuals lies near zero, indicating that the residuals don't have obvious correlation with predictors. In QQ plot, many residual points aren't on the line, which shows that the residuals don't follow normal distribution. In Scale Location plot, the standard error of residuals are rather high when the fitted value is small, but the standard error gradually reduce when the fitted value increase. Such condition indicates potential heteroskedasticity in residuals. In Residuals vs Leverage plot, it is hard to identify the outlier. I also use `cook.distance` to check if the distance is larger than 0.5. The result shows that there are 4 influential observations.
+
+## Result
+
+Under the fitted multilevel model, for every one unit increase in feature, the average car price is expected to increase by $2.7\%$ when other variables remained unchanged. For every 100000 kilometers increase in odometer value, the average car price is expected to reduce by $3.4\%$ when other variables remained unchanged. For every one unit increase in engine capacity, the average car price is expected to increase by $28.9\%$ when other variables remained unchanged. For cars with warranty, the average car price is expected to increase by $8.5\%$ compared with those without warranty when other variables remained unchanged. For year duration, it is hard to directly interpret in that this term include polynomial degree. Here I use derivative instead to illustrate it. When we control other variables, We have:
+
+$$
+\begin{aligned}
+price\_increment=&\frac{{\rm d}exp(-60.510log(y)-24.011log^2(y)-7.406log^3(y))}{{\rm d}y} \\
+=& exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-24.011\frac{2log(y)}{y}-7.406\frac{3log^2(y)}{y}) \\
+=& exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-48.022\frac{log(y)}{y}-22.218\frac{log^2(y)}{y})
+\end{aligned}
+$$
+
+Therefore, for every one unit year increase, the average price is expected to change by $exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-48.022\frac{log(y)}{y}-22.218\frac{log^2{y}}{y})$. 
+
+
+```{r fig.cap='Random Effect Plot'}
+library(stringr)
+tmp<-ranef(lmer_model)$`body_type:manufacturer_name`
+tmp$interaction<-rownames(tmp)
+colnames(tmp)<-c('random effect','interaction')
+rownames(tmp)<-seq(1,dim(tmp)[1])
+tmp2<-tmp %>% separate(col='interaction',into=c('body_type','manufacturer'),sep=':')
+tmp3<-tmp2 %>% pivot_wider(names_from = 'body_type',values_from ='random effect' )
+tmp2 %>%ggplot(aes(x=factor(manufacturer),y=`random effect`,color=factor(body_type)))+geom_point()+geom_text(aes(label = round(`random effect`,2)),vjust = "inward", hjust = "inward",size=4,check_overlap = TRUE,show_guide  = F)+guides(label = FALSE )+labs(title='Random Effect Plot',x='manufacturer',color='Body Type')+my_theme2
+            
+```
+
+The random effect plot shows that the car price vary from manufacturer and body type. Take Toyota as an example, most of their cars have positive random effect, but body types like cabriolet, suv and minibus enjoy a rather high random effect compared with other types. We can also compared the same body type with different manufacturers. For example, Toyota's suv has the highest random effect among all manufacturers' suv. 
+
+
+## Discussion
+
+In this report, I conduct a multilevel linear regression based on used on car dataset downloaded in Kaggle. I select feature, year duration, odometer value, engine capacity and warranty as predictor and apply manufacture name and body type as random effect. The interpretation of coefficients mostly corresponds to people's common sense. This report gives more precise relationship between selected variables and car price.    
+However, there are still some limitation in this report. 
+First, this report only focuses on 10 manufacturer brands. Chances are good that brands excluded from this report may have different explanation on predictors and random effect. 
+Second, the predictors selected in this report may be more or less correlated. This report don't further analyze the correlation and deal with them. 
+Third, the residuals in the fitted model don't follow normal distribution and have heteroskedasticity. Therefore, the residuals don't completely confirms to the assumptions based on linear regression. 
+Fourth, the overall used car market price may change over time and the market price may be affected by macro index as well. This report don't take these factors into consideration. 
+Finally, linear regression is usually suitable for interpretation but not accurate in prediction. Many other methods like machine learning and deep learning have better predictive power.     
+For the next step, I plan to include more brands into account and conduct more feature engineering in the basis of current  exploratory data analysis, then I plan to apply machine learning models like Random Forest, XGboost and LightGBM to build the model for more accurate prediction. Also, I consider combining models through stacking to further improve the predictive power.   
+
+\newpage
+
+## Appendix
+
+```{r}
+#tmp3[1:6,] %>% mutate_at(c('cabriolet','sedan'),~round(.,2))
+# out1<-tmp3[,1:6] %>% mutate_if(is.double, ~round(.,2))
+# out2<-tmp3[,c(1,7:11)] %>% mutate_if(is.double, ~round(.,2))
+
+```
+
+Random Effect Table:
+
+|manufacturer | cabriolet| coupe| hatchback| liftback| minibus|
+|:------------|---------:|-----:|---------:|--------:|-------:|
+|Honda        |      0.45|  0.25|     -0.02|    -0.07|      NA|
+|Lexus        |      0.09|  0.30|      0.18|       NA|      NA|
+|Nissan       |     -0.17|  0.52|     -0.27|    -0.10|    0.04|
+|Suzuki       |      0.55|    NA|     -0.29|       NA|      NA|
+|Toyota       |      0.55|  0.30|     -0.01|     0.14|    0.54|
+|Hyundai      |        NA| -0.22|     -0.38|    -0.15|    0.06|
+|Infiniti     |        NA|  0.06|     -0.05|       NA|      NA|
+|Mazda        |        NA| -0.21|     -0.29|    -0.22|   -0.18|
+|Mitsubishi   |        NA|  0.20|     -0.33|    -0.32|    0.20|
+|Subaru       |        NA|    NA|     -0.04|    -0.06|    0.30|
+
+
+|manufacturer | minivan| pickup| sedan|   suv| universal|
+|:------------|-------:|------:|-----:|-----:|---------:|
+|Honda        |    0.20|   0.10| -0.02|  0.26|      0.14|
+|Lexus        |      NA|     NA|  0.13|  0.27|      0.12|
+|Nissan       |   -0.20|   0.32| -0.33|  0.08|     -0.36|
+|Suzuki       |   -0.37|     NA| -0.54|  0.08|     -0.30|
+|Toyota       |    0.25|   0.13|  0.07|  0.43|      0.16|
+|Hyundai      |   -0.09|     NA| -0.37|  0.17|     -0.29|
+|Infiniti     |      NA|     NA| -0.15|  0.01|     -0.08|
+|Mazda        |   -0.03|   0.06| -0.24| -0.03|     -0.28|
+|Mitsubishi   |   -0.15|   0.15| -0.25|  0.16|     -0.25|
+|Subaru       |   -0.08|     NA|  0.05|  0.01|      0.01|
