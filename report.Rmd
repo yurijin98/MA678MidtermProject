@@ -26,13 +26,13 @@ rstanarm
 
 ## Abstract
 
-I conducted a multilevel linear regression model to find the relationship between the used car price and used car specification. In the process of modelling, I check the marginal Model Plots of predictor and added polynomial form on one predictor. After that, I used manufacture brand and body type as group-level predictors to construct varying-intercept model. The residuals of the fitted model don't have obvious correlation with varibales but have heteroskedasticity and don't follow normal distribution. The coefficients of the fitted model shows valid interpretation.
+I conduct a multilevel linear regression model to find the relationship between the used car price and used car specification. In the process of modelling, I check the marginal Model Plots of predictor and add polynomial form on one predictor. After that, I use manufacture brand and body type as group-level predictors to construct varying-intercept model. The residuals of the fitted model don't have obvious correlation with variables but have heteroskedasticity and don't follow normal distribution. The coefficients of the fitted model shows valid interpretation.
 
 
 ## Introduction
 
 Cars are convenient means of transportation. However, selling and buying a used car isn't necessarily convenient. If people are planning to purchase or sell a used car, it always takes them a long time to search similar cars to compare and try to estimate a price for their own ones. Since manual comparison cannot reflect the precise relationship between price and car feature, the seemingly fair price isn't usually accurate. Moreover, when it comes to another car, they have to repeat such time consuming but rough estimation again. It is true that some websites have built the model to give a price for reference as long as customers type in their car conditions. Nonetheless, people still can't preciously figure out what factors on earth decide the value of used car.     
-In this report, I conducted a multilevel linear regression model to analyse how these factors influence the used car price. The analysis consists of three sections. In Method section, I will first introduce the data source used in this report and conduct some data processing. Then I will conduct exploratory data analysis and fit the model. After that, I will check the residuals of the fitted model. In Result section, I will interpret the coefficient of fitted model and display the random effect of multilevel model. In Discussion section, I will summarize what I have done and found in this report. Also, I will include limitation and next step work at last.  
+In this report, I conduct a multilevel linear regression model to analyse how these factors influence the used car price. The analysis consists of three sections. In Method section, I first introduce the data source used in this report and conduct some data processing. Then I conduct exploratory data analysis and fit the model. After that, I check the residuals of the fitted model. In Result section, I interpret the coefficient of fitted model and display the random effect of multilevel model. In Discussion section, I summarize what I have done and found in this report. Also, I include limitation and next step work at last.  
 
 
 ## Method
@@ -68,7 +68,7 @@ knitr::kable(des_tab, "pipe")
 |price usd         |The price of a car as listed in the catalog in USD                       |
 
 
-The data has 38531 observations and 30 columns. In the following analysis, I choose 10 manufacture brands from Japan and Korea and several variables to conduct the analysis. I also conduct some transformation on some columns. For `year produced`, I use $year\_duration=log(2020-year\_produced)$ to get the age of cars being used. For `feature 0-9`, they are 9 bool type variables. I add them together as $feature=\sum_{i=0}^{9} feature_i$ to get the sum of feature.
+The data has 38531 observations and 30 columns. In the following analysis, I choose 10 manufacture brands from Japan and Korea and several variables listed above to conduct the analysis. I also conduct some transformation on some columns. For `year produced`, I use $year\_duration=log(2020-year\_produced)$ to get the age of cars being used. For `feature 0-9`, they are 9 bool type variables. I add them together as $feature=\sum_{i=0}^{9} feature_i$ to get the sum of feature.
 
 
 ### Exploratory Data Analysis
@@ -169,7 +169,7 @@ Figure 2 consists of three plots, the first one is the log(price) boxplot of war
 
 ### Model Fitting
 
-Previous exploratory data analysis section shows vivid trends and difference of car price. More importantly, these characteristics corresponds to most people's common sense. In this section, I will elaborate the model fitting process. First, it is important to check if potential variables have polynomial effect on log(price). Therefore, I apply marginal model plots without polynomial effect on odometer value, car feature, year duration and engine capacity. The plots are shown below:
+Previous exploratory data analysis section shows vivid trends and difference of car price. More importantly, these characteristics corresponds to most people's common sense. In this section, I elaborate the model fitting process. First, it is important to check if potential variables have polynomial effect on log(price). Therefore, I apply marginal model plots without polynomial effect on odometer value, car feature, year duration and engine capacity. The plots are shown below:
 
 ```{r fig.height=6,fig.cap="Marginal Model Plots"}
 
@@ -220,7 +220,7 @@ Finally, I conduct residual analysis. The Residuals vs Fitted plot shows that th
 
 ## Result
 
-Under the fitted multilevel model, for every one unit increase in feature, the average car price is expected to increase by $2.7\%$ when other variables remained unchanged. For every 100000 kilometers increase in odometer value, the average car price is expected to reduce by $3.4\%$ when other variables remained unchanged. For every one unit increase in engine capacity, the average car price is expected to increase by $28.9\%$ when other variables remained unchanged. For cars with warranty, the average car price is expected to increase by $8.5\%$ compared with those without warranty when other variables remained unchanged. For year duration, it is hard to directly interpret in that this term include polynomial degree. Here I use derivative instead to illustrate it. When we control other variables, We have:
+Under the fitted multilevel model, for every one unit increase in feature, the average car price is expected to increase by $2.7\%$ when other variables remain unchanged. For every 100000 kilometers increase in odometer value, the average car price is expected to reduce by $3.4\%$ when other variables remain unchanged. For every one unit increase in engine capacity, the average car price is expected to increase by $28.9\%$ when other variables remain unchanged. For cars with warranty, the average car price is expected to increase by $8.5\%$ compared with those without warranty when other variables remain unchanged. For year duration, it is hard to directly interpret in that this term include polynomial degree. Here I use derivative instead to illustrate it. When we control other variables, We have:
 
 $$
 \begin{aligned}
@@ -245,7 +245,7 @@ tmp2 %>%ggplot(aes(x=factor(manufacturer),y=`random effect`,color=factor(body_ty
             
 ```
 
-The random effect plot shows that the car price vary from manufacturer and body type. Take Toyota as an example, most of their cars have positive random effect, but body types like cabriolet, suv and minibus enjoy a rather high random effect compared with other types. We can also compared the same body type with different manufacturers. For example, Toyota's suv has the highest random effect among all manufacturers' suv. 
+The random effect plot shows that the car price varies from manufacturer and body type. Take Toyota as an example, most of their cars have positive random effect, but body types like cabriolet, suv and minibus enjoy a rather high random effect compared with other types. We can also compare the same body type with different manufacturers. For example, Toyota's suv has the highest random effect among all manufacturers' suv. 
 
 
 ## Discussion
@@ -254,7 +254,7 @@ In this report, I conduct a multilevel linear regression based on used on car da
 However, there are still some limitation in this report. 
 First, this report only focuses on 10 manufacturer brands. Chances are good that brands excluded from this report may have different explanation on predictors and random effect. 
 Second, the predictors selected in this report may be more or less correlated. This report don't further analyze the correlation and deal with them. 
-Third, the residuals in the fitted model don't follow normal distribution and have heteroskedasticity. Therefore, the residuals don't completely confirms to the assumptions based on linear regression. 
+Third, the residuals in the fitted model don't follow normal distribution and have heteroskedasticity. Therefore, the residuals don't completely confirm to the assumptions based on linear regression. 
 Fourth, the overall used car market price may change over time and the market price may be affected by macro index as well. This report don't take these factors into consideration. 
 Finally, linear regression is usually suitable for interpretation but not accurate in prediction. Many other methods like machine learning and deep learning have better predictive power.     
 For the next step, I plan to include more brands into account and conduct more feature engineering in the basis of current  exploratory data analysis, then I plan to apply machine learning models like Random Forest, XGboost and LightGBM to build the model for more accurate prediction. Also, I consider combining models through stacking to further improve the predictive power.   
