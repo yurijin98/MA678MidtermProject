@@ -298,3 +298,23 @@ Random Effect Table:
 |Mazda        |   -0.03|   0.06| -0.24| -0.03|     -0.28|
 |Mitsubishi   |   -0.15|   0.15| -0.25|  0.16|     -0.25|
 |Subaru       |   -0.08|     NA|  0.05|  0.01|      0.01|
+
+
+```{r}
+#knitr::kable(summary(lmer_model)$coefficients %>% round(3),'pipe')
+
+```
+
+
+Model Checking Details:
+
+|                        | Estimate| Std. Error|  t value|
+|:-----------------------|--------:|----------:|--------:|
+|(Intercept)             |    7.981|      0.038|  208.777|
+|feature                 |    0.027|      0.002|   11.498|
+|poly(year_duration, 3)1 |  -60.510|      0.554| -109.209|
+|poly(year_duration, 3)2 |  -24.011|      0.377|  -63.642|
+|poly(year_duration, 3)3 |   -7.406|      0.355|  -20.835|
+|odometer_value_th       |   -0.034|      0.004|   -7.662|
+|engine_capacity         |    0.254|      0.009|   28.928|
+|has_warrantyTrue        |    0.085|      0.081|    1.039|
