@@ -26,8 +26,7 @@ rstanarm
 
 ## Abstract
 
-I conduct a multilevel linear regression model to find the relationship between the used car price and used car specification. In the process of modelling, I check the marginal Model Plots of predictor and add polynomial form on one predictor. After that, I use manufacture brand and body type as group-level predictors to construct varying-intercept model. The residuals of the fitted model don't have obvious correlation with variables but have heteroskedasticity and don't follow normal distribution. The coefficients of the fitted model shows valid interpretation.
-
+I conduct a multilevel linear regression model to find the relationship between the used car price and used car specification. The coefficients of the fitted model shows valid interpretation. Among selected variables, odometer value and car's age(year duration) have negative influence on used car price. Car features, engine capacity and warranty have positive influence on used car price. The manufacturer and body type of the car also have different effects on used car price.
 
 ## Introduction
 
@@ -39,7 +38,7 @@ In this report, I conduct a multilevel linear regression model to analyse how th
 
 ### Data Processing
 
-The data is from [Kaggle-usedcarscatalog](https://www.kaggle.com/lepchenkov/usedcarscatalog). The following table is the explanation of some columns. 
+The data is from [Kaggle-usedcarscatalog](https://www.kaggle.com/lepchenkov/usedcarscatalog). The data is scraped in Belarus (western Europe) on the 2nd of December 2019. The following table is the explanation of some columns. 
 
 ```{r eval=FALSE}
 Column<-c('manufacturer name','odometer_value','year_produced','engine_capacity','body_type','has_warranty',
@@ -186,17 +185,130 @@ $$
 \begin{aligned}
 log(price)=&7.981+0.027feature-60.510year\_duration-24.011year\_duration^2-7.406year\_duration^3 \\
            &-0.034odometer\_value+0.254engine\_capacity+0.085warranty+n_j+\epsilon \\
-n_j \sim N(0,\sigma^2_a)
+n_j \sim & N(0,\sigma^2_a)
 \end{aligned}
 $$
 where $n_j$ is the random effect of manufacturer name:body type
 
 
-```{r fig.width=8,fig.cap='Residual Plot'}
+```{r}
 
 lmer_model<-lmer(price_usd_log ~ feature + poly(year_duration,3) + odometer_value_th +engine_capacity + has_warranty+(1|body_type : manufacturer_name), data=df1)
 # fixef(lmer_model)
 # exp(fitted(lmer_model))
+```
+
+
+
+
+Finally, I conduct residual analysis. The details of residual plots are listed in the `Appendix`. The Residuals vs Fitted plot shows that the mean of residuals lies near zero, indicating that the residuals don't have obvious correlation with predictors. In QQ plot, many residual points aren't on the line, which shows that the residuals don't follow normal distribution. In Scale Location plot, the standard error of residuals are rather high when the fitted value is small, but the standard error gradually reduce when the fitted value increase. Such condition indicates potential heteroskedasticity in residuals. In Residuals vs Leverage plot, it is hard to identify the outlier. I also use `cook.distance` to check if the distance is larger than 0.5. The result shows that there are 4 influential observations.
+
+## Result
+
+Under the fitted multilevel model, for every one unit increase in feature, the average car price is expected to increase by $2.7\%$ when other variables remain unchanged. For every 100000 kilometers increase in odometer value, the average car price is expected to reduce by $3.4\%$ when other variables remain unchanged. For every one unit increase in engine capacity, the average car price is expected to increase by $28.9\%$ when other variables remain unchanged. For cars with warranty, the average car price is expected to increase by $8.5\%$ compared with those without warranty when other variables remain unchanged. For year duration, it is hard to directly interpret in that this term include polynomial degree. Here I use derivative instead to illustrate it. When we control other variables, We have:
+
+$$
+\begin{aligned}
+price\_increment=&\frac{{\rm d}exp(-60.510log(y)-24.011log^2(y)-7.406log^3(y))}{{\rm d}y} \\
+=& exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-24.011\frac{2log(y)}{y}-7.406\frac{3log^2(y)}{y}) \\
+=& exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-48.022\frac{log(y)}{y}-22.218\frac{log^2(y)}{y})
+\end{aligned}
+$$
+
+Therefore, for every one unit year increase, the average price is expected to change by $exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-48.022\frac{log(y)}{y}-22.218\frac{log^2{(y)}}{y})$. 
+
+
+
+```{r  fig.width=15,fid.height=15  ,fig.cap="Varying Intercepts With 95\\% Credible Intervals"}
+
+# lmer_model_stan<-stan_lmer(price_usd_log ~ feature + poly(year_duration,3) + odometer_value_th +engine_capacity + # has_warranty+(1|body_type : manufacturer_name), data=df1)
+
+#saveRDS(lmer_model_stan,"stanmodel.rds")
+lmer_model_stan <- readRDS("stanmodel.rds")
+
+sims<-as.matrix(lmer_model_stan)
+para_name <- colnames(sims)
+
+mu_a_sims <- as.matrix(lmer_model_stan, 
+                       pars = "(Intercept)")
+u_sims <- as.matrix(lmer_model_stan, 
+                    regex_pars = "b\\[\\(Intercept\\) body_type:manufacturer_name\\:")
+a_sims <- as.numeric(mu_a_sims) + u_sims          
+
+s_y_sims <- as.matrix(lmer_model_stan, 
+                       pars = "sigma")
+s__alpha_sims <- as.matrix(lmer_model_stan, 
+                       pars = "Sigma[body_type:manufacturer_name:(Intercept),(Intercept)]")
+
+a_mean <- apply(X = a_sims,     # posterior mean
+                MARGIN = 2,
+                FUN = mean)
+a_sd <- apply(X = a_sims,       # posterior SD
+              MARGIN = 2,
+              FUN = sd)
+
+# Posterior median and 95% credible interval
+a_quant <- apply(X = a_sims, 
+                 MARGIN = 2, 
+                 FUN = quantile, 
+                 probs = c(0.025, 0.50, 0.975))
+a_quant <- data.frame(t(a_quant))
+names(a_quant) <- c("Q2.5", "Q50", "Q97.5")
+a_df <- data.frame(a_mean, a_sd, a_quant)
+
+a_df <- a_df[order(a_df$a_mean), ]
+a_df$a_rank <- c(1 : dim(a_df)[1]) 
+
+a_df$row<-factor(rownames(a_df) ,levels=rownames(a_df))
+
+a_df<-a_df %>% separate(col=row,into=c('none','none2','body_type','manufacturer_name'),sep=':')
+a_df$manufacturer_name<-str_extract(a_df$manufacturer_name,'\\w*')
+
+ggplot(data = a_df, 
+       aes(x = factor(manufacturer_name), 
+           y = a_mean)) +
+  geom_pointrange(aes(ymin = Q2.5, 
+                      ymax = Q97.5),
+                  position = position_jitter(width = 0.1, 
+                                             height = 0)) + 
+  geom_hline(yintercept = mean(a_df$a_mean), 
+             size = 0.5, 
+             col = "red") + 
+  scale_y_continuous(expression(paste("varying intercept ", n[j]))) + labs(x='manufacturer')+
+  theme_bw( base_family = "serif")+
+    theme(axis.text.x = element_text(angle=90),plot.title = element_text(hjust = 0.5))+
+  facet_wrap(~ body_type, nrow = 2)
+
+
+```
+
+
+The Varying Intercepts plot shows that the car price varies from manufacturer and body type. I apply `stan` to include $95\%$ credible intervals. The red line in the middle shows mean of all intercepts. For coupe, minibus and suv, these car types are generally higer than the mean of intercept. For hatchback, liftback, minivan, sedan and universal, these car types are generally lower than the mean of intercept. For other car types like cabriolet, pickup and van, not many manufacturers have these types. For coupe, Nissan's coupe price is generally the highest among all manufacturer. This makes sense in that Nissan's GTR coupe is always expensive. Hyundai and Mazda's coupe is relatively lower. Mazda is famous for its MX series whose price is more competitive than most luxury coupe. For hatchback, Lexus is the highest price manufacturer. For liftback, minibus and suv, Toyota is the highest price manufacturer. Suzuki's minivan and sedan are generally the cheapest car within the same body type. This also makes sense in that Suzuki's car price is always more competitive than the majority of Japanese manufacturers within the same car type. In addition, apart from suv and minivan type, Korean manufacturer Hyundai's price is always lower than Japanese manufacturers. It is weired that Lexus's suv intercept is lower than Toyota's suv even though Lexus's new car price is higher than Toyota's. Chances are that in Belarus the value retention rate of Lexus is much lower than the one of Toyota and Toyota is more popular than Lexus in second hand car marketplace. As a result, Lexus's suv average car price is inclined to be much lower than Toyota's in Belarus when other variables remain same.
+
+
+
+```{r}
+# df2<-df1 %>% filter(manufacturer_name %in% c('Lexus','Toyota'),body_type=='suv')
+# df2 %>% group_by(manufacturer_name) %>% summarise(mean=mean(price_usd))
+# df2 %>% select(c(1:2),price_usd) %>% view()
+```
+
+## Discussion
+
+In this report, I conduct a multilevel linear regression based on used on car dataset downloaded in Kaggle. I select feature, year duration, odometer value, engine capacity and warranty as predictor and apply manufacture name and body type as random effect. The interpretation of coefficients mostly corresponds to people's common sense. This report gives more precise relationship between selected variables and car price.    
+However, there are still some limitation in this report. 
+First, this report only focuses on 10 manufacturer brands. Chances are good that brands excluded from this report may have different explanation on predictors and random effect. 
+Second, the predictors selected in this report may be more or less correlated. This report don't further analyze the correlation and deal with them. 
+Third, the residuals in the fitted model don't follow normal distribution and have heteroskedasticity. Therefore, the residuals don't completely confirm to the assumptions based on linear regression. 
+Fourth, the overall used car market price may change over time and the market price may be affected by macro index and value retention rate as well. This report don't take these factors into consideration. 
+Finally, linear regression is usually suitable for interpretation but not accurate in prediction. Many other methods like machine learning and deep learning have better predictive power.     
+For the next step, I plan to include more brands into account and conduct more feature engineering in the basis of current  exploratory data analysis, then I plan to apply machine learning models like Random Forest, XGboost and LightGBM to build the model for more accurate prediction. Also, I consider combining models through stacking to further improve the predictive power.   
+
+\newpage
+
+## Appendix
+
+```{r  fig.width=8,fig.cap='Residual Plot'}
 p1<-plot(lmer_model, type=c("p","smooth"), col.line=1,main='Residuals vs Fitted')
 p2<-plot(lmer_model,
      sqrt(abs(resid(.)))~fitted(.),
@@ -216,53 +328,6 @@ lay_grid(plot3,lay3)
 ```
 
 
-Finally, I conduct residual analysis. The Residuals vs Fitted plot shows that the mean of residuals lies near zero, indicating that the residuals don't have obvious correlation with predictors. In QQ plot, many residual points aren't on the line, which shows that the residuals don't follow normal distribution. In Scale Location plot, the standard error of residuals are rather high when the fitted value is small, but the standard error gradually reduce when the fitted value increase. Such condition indicates potential heteroskedasticity in residuals. In Residuals vs Leverage plot, it is hard to identify the outlier. I also use `cook.distance` to check if the distance is larger than 0.5. The result shows that there are 4 influential observations.
-
-## Result
-
-Under the fitted multilevel model, for every one unit increase in feature, the average car price is expected to increase by $2.7\%$ when other variables remain unchanged. For every 100000 kilometers increase in odometer value, the average car price is expected to reduce by $3.4\%$ when other variables remain unchanged. For every one unit increase in engine capacity, the average car price is expected to increase by $28.9\%$ when other variables remain unchanged. For cars with warranty, the average car price is expected to increase by $8.5\%$ compared with those without warranty when other variables remain unchanged. For year duration, it is hard to directly interpret in that this term include polynomial degree. Here I use derivative instead to illustrate it. When we control other variables, We have:
-
-$$
-\begin{aligned}
-price\_increment=&\frac{{\rm d}exp(-60.510log(y)-24.011log^2(y)-7.406log^3(y))}{{\rm d}y} \\
-=& exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-24.011\frac{2log(y)}{y}-7.406\frac{3log^2(y)}{y}) \\
-=& exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-48.022\frac{log(y)}{y}-22.218\frac{log^2(y)}{y})
-\end{aligned}
-$$
-
-Therefore, for every one unit year increase, the average price is expected to change by $exp(-60.510log(y)-24.011log^2(y)-7.406long^3(y))*(-60.510\frac{1}{y}-48.022\frac{log(y)}{y}-22.218\frac{log^2{y}}{y})$. 
-
-
-```{r fig.cap='Random Effect Plot'}
-library(stringr)
-tmp<-ranef(lmer_model)$`body_type:manufacturer_name`
-tmp$interaction<-rownames(tmp)
-colnames(tmp)<-c('random effect','interaction')
-rownames(tmp)<-seq(1,dim(tmp)[1])
-tmp2<-tmp %>% separate(col='interaction',into=c('body_type','manufacturer'),sep=':')
-tmp3<-tmp2 %>% pivot_wider(names_from = 'body_type',values_from ='random effect' )
-tmp2 %>%ggplot(aes(x=factor(manufacturer),y=`random effect`,color=factor(body_type)))+geom_point()+geom_text(aes(label = round(`random effect`,2)),vjust = "inward", hjust = "inward",size=4,check_overlap = TRUE,show_guide  = F)+guides(label = FALSE )+labs(title='Random Effect Plot',x='manufacturer',color='Body Type')+my_theme2
-            
-```
-
-The random effect plot shows that the car price varies from manufacturer and body type. Take Toyota as an example, most of their cars have positive random effect, but body types like cabriolet, suv and minibus enjoy a rather high random effect compared with other types. We can also compare the same body type with different manufacturers. For example, Toyota's suv has the highest random effect among all manufacturers' suv. 
-
-
-## Discussion
-
-In this report, I conduct a multilevel linear regression based on used on car dataset downloaded in Kaggle. I select feature, year duration, odometer value, engine capacity and warranty as predictor and apply manufacture name and body type as random effect. The interpretation of coefficients mostly corresponds to people's common sense. This report gives more precise relationship between selected variables and car price.    
-However, there are still some limitation in this report. 
-First, this report only focuses on 10 manufacturer brands. Chances are good that brands excluded from this report may have different explanation on predictors and random effect. 
-Second, the predictors selected in this report may be more or less correlated. This report don't further analyze the correlation and deal with them. 
-Third, the residuals in the fitted model don't follow normal distribution and have heteroskedasticity. Therefore, the residuals don't completely confirm to the assumptions based on linear regression. 
-Fourth, the overall used car market price may change over time and the market price may be affected by macro index as well. This report don't take these factors into consideration. 
-Finally, linear regression is usually suitable for interpretation but not accurate in prediction. Many other methods like machine learning and deep learning have better predictive power.     
-For the next step, I plan to include more brands into account and conduct more feature engineering in the basis of current  exploratory data analysis, then I plan to apply machine learning models like Random Forest, XGboost and LightGBM to build the model for more accurate prediction. Also, I consider combining models through stacking to further improve the predictive power.   
-
-\newpage
-
-## Appendix
-
 ```{r}
 #tmp3[1:6,] %>% mutate_at(c('cabriolet','sedan'),~round(.,2))
 # out1<-tmp3[,1:6] %>% mutate_if(is.double, ~round(.,2))
@@ -270,7 +335,8 @@ For the next step, I plan to include more brands into account and conduct more f
 
 ```
 
-Random Effect Table:
+Random Effect Table:    
+Notice that the reason NA appears is that the manufacturer didn't produce such body type car. 
 
 |manufacturer | cabriolet| coupe| hatchback| liftback| minibus|
 |:------------|---------:|-----:|---------:|--------:|-------:|
@@ -318,3 +384,30 @@ Model Checking Details:
 |odometer_value_th       |   -0.034|      0.004|   -7.662|
 |engine_capacity         |    0.254|      0.009|   28.928|
 |has_warrantyTrue        |    0.085|      0.081|    1.039|
+
+
+
+```{r eval=F,fig.cap='Random Effect Plot'}
+library(stringr)
+tmp<-ranef(lmer_model)$`body_type:manufacturer_name`
+tmp$interaction<-rownames(tmp)
+colnames(tmp)<-c('random effect','interaction')
+rownames(tmp)<-seq(1,dim(tmp)[1])
+tmp2<-tmp %>% separate(col='interaction',into=c('body_type','manufacturer'),sep=':')
+tmp3<-tmp2 %>% pivot_wider(names_from = 'body_type',values_from ='random effect' )
+tmp2 %>%ggplot(aes(x=factor(manufacturer),y=`random effect`,color=factor(body_type)))+geom_point()+geom_text(aes(label = round(`random effect`,2)),vjust = "inward", hjust = "inward",size=4,check_overlap = TRUE,show_guide  = F)+guides(label = FALSE )+labs(title='Random Effect Plot',x='manufacturer',color='Body Type')+my_theme2
+            
+```
+
+
+```{r eval=F}
+tmp<-ranef(lmer_model_stan)$`body_type:manufacturer_name`
+tmp$interaction<-rownames(tmp)
+
+colnames(tmp)<-c('random effect','interaction')
+rownames(tmp)<-seq(1,dim(tmp)[1])
+tmp2<-tmp %>% separate(col='interaction',into=c('body_type','manufacturer'),sep=':')
+tmp3<-tmp2 %>% pivot_wider(names_from = 'body_type',values_from ='random effect' )
+# tmp2 %>%ggplot(aes(x=factor(manufacturer),y=`random effect`,color=factor(body_type)))+geom_point()+geom_text(aes(label = round(`random effect`,2)),vjust = "inward", hjust = "inward",size=4,check_overlap = TRUE,show_guide  = F)+guides(label = FALSE )+labs(title='Random Effect Plot',x='manufacturer',color='Body Type')+my_theme2
+```
+
