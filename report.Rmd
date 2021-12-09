@@ -26,7 +26,7 @@ rstanarm
 
 ## Abstract
 
-I conduct a multilevel linear regression model to find the relationship between the used car price and used car specification. The coefficients of the fitted model shows valid interpretation. Among selected variables, odometer value and car's age(year duration) have negative influence on used car price. Car features, engine capacity and warranty have positive influence on used car price. The manufacturer and body type of the car also have different effects on used car price.
+I conduct a multilevel linear regression model to find the relationship between the used car price and used car specification. The coefficients of the fitted model show valid interpretation. Among selected variables, odometer value and car's age(year duration) have negative influence on used car price. Car features, engine capacity and warranty have positive influence on used car price. The manufacturer and body type of the car also have different effects on used car price.
 
 ## Introduction
 
